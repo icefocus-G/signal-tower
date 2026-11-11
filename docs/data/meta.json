@@ -1,8 +1,8 @@
 {
-  "generated_at": 1794361083.536006,
-  "generated_at_iso": "2026-11-11 09:38:03",
+  "generated_at": 1794361669.74755,
+  "generated_at_iso": "2026-11-11 09:47:49",
   "engine": "mymemory",
-  "elapsed": 225.6,
+  "elapsed": 232.9,
   "categories": {
     "ai": {
       "label": "前沿 AI",
@@ -132,8 +132,8 @@
       "category": "ai",
       "lang": "en",
       "desc": "消费科技与平台生态",
-      "ok": true,
-      "count": 10
+      "ok": false,
+      "count": 0
     },
     {
       "id": "arxiv_ai",
@@ -141,8 +141,8 @@
       "category": "ai",
       "lang": "en",
       "desc": "论文摘要，前沿但噪声大",
-      "ok": true,
-      "count": 25
+      "ok": false,
+      "count": 0
     },
     {
       "id": "xinhua_pol",
@@ -209,9 +209,9 @@
     }
   ],
   "totals": {
-    "fetched": 575,
+    "fetched": 540,
     "kept": 201,
-    "sources_ok": 21,
+    "sources_ok": 19,
     "sources_total": 21
   }
 }

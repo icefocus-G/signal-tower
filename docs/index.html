@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>信号塔 · 前沿 AI 与时政</title>
-<meta name="description" content="中文呈现的前沿 AI 与时政资讯聚合，英文源自动翻译，每日更新。">
+<title>信号塔 · 前沿 AI / 时政 / 养生</title>
+<meta name="description" content="中文呈现的前沿 AI、时政、养生资讯聚合，多源去重过滤，英文按需翻译，每日自动更新。">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <style>
 :root{
@@ -398,7 +398,12 @@ function saveRead() {
 /* ---------------- 数据加载 ---------------- */
 
 async function loadMeta() {
-  // 先探测静态数据，再回退到本地 API
+  // 内联数据版（单文件，双击即可看）优先
+  if (window.__DATA__ && window.__DATA__.meta) {
+    state.mode = "inline";
+    return window.__DATA__.meta;
+  }
+  // 再探测静态数据，最后回退到本地 API
   try {
     const r = await fetch("data/meta.json", { cache: "no-store" });
     if (r.ok) {
@@ -417,6 +422,14 @@ async function loadMeta() {
 }
 
 async function loadCategory(cat) {
+  if (state.mode === "inline") {
+    const d = window.__DATA__[cat] || { items: [] };
+    state.data[cat] = d.items || [];
+    if (cat === "health") {
+      state.healthMeta = { topics: d.topics || [], guides: d.guides || {}, disclaimer: d.disclaimer || "" };
+    }
+    return d;
+  }
   if (state.mode === "static") {
     const r = await fetch(`data/${cat}.json`, { cache: "no-store" });
     if (!r.ok) throw new Error("分类数据缺失");
@@ -457,7 +470,9 @@ function renderStatus() {
     ${total.sources_total ? `<span class="pill">源 ${total.sources_ok}/${total.sources_total} 在线</span>` : ""}
     ${total.fetched ? `<span class="pill">抓取 ${total.fetched} → 保留 ${total.kept}</span>` : ""}
     <span class="pill"><span class="dot ${m.engine === "google" ? "" : "warn"}"></span>翻译 ${esc(engineName)}</span>
-    ${state.mode === "static" ? '<span class="pill">静态托管</span>' : '<span class="pill">本地服务</span>'}
+    ${state.mode === "static" ? '<span class="pill">静态托管</span>'
+      : state.mode === "inline" ? '<span class="pill">单文件离线版</span>'
+      : '<span class="pill">本地服务</span>'}
   `;
   $("#foot-meta").textContent =
     `上次构建 ${m.generated_at_iso || when} · 耗时 ${m.elapsed || "?"}s · ${total.sources_total || "—"} 个源`;
@@ -691,6 +706,12 @@ function findItem(id) {
 
 async function getArticle(id) {
   if (state.articleCache[id]) return state.articleCache[id];
+  if (state.mode === "inline") {
+    const a = (window.__DATA__.articles || {})[id];
+    if (!a) return null;
+    state.articleCache[id] = a;
+    return a;
+  }
   if (state.mode === "api") {
     const r = await fetch(`/api/article?id=${id}`);
     if (!r.ok) throw new Error("正文获取失败");

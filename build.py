@@ -24,6 +24,52 @@ from pipeline import CATEGORIES, CATEGORY_LABEL, public_item
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE, "static")
 
+def make_standalone(out_dir: str):
+    """
+    生成 offline.html：把三个类目的 JSON 内联进页面。
+    这样双击文件就能看，不受 file:// 的 fetch 限制，也方便发给别人。
+    """
+    import re
+
+    html_path = os.path.join(out_dir, "index.html")
+    if not os.path.exists(html_path):
+        return
+    with open(html_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    bundle = {"meta": None, "articles": {}}
+    for cat in CATEGORIES:
+        p = os.path.join(out_dir, "data", f"{cat}.json")
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                bundle[cat] = json.load(f)
+    mp = os.path.join(out_dir, "data", "meta.json")
+    if os.path.exists(mp):
+        with open(mp, "r", encoding="utf-8") as f:
+            bundle["meta"] = json.load(f)
+    ap = os.path.join(out_dir, "data", "articles.json")
+    if os.path.exists(ap):
+        with open(ap, "r", encoding="utf-8") as f:
+            bundle["articles"] = json.load(f)
+
+    payload = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
+    # 防止 JSON 里出现 </script> 提前闭合标签
+    payload = payload.replace("</", "<\\/")
+
+    inject = f'<script>window.__DATA__={payload};</script>\n'
+    marker = "<script>\n(() =>"
+    if marker in html:
+        html = html.replace(marker, inject + marker, 1)
+    else:
+        i = html.find("<script>")
+        html = html[:i] + inject + html[i:]
+
+    out = os.path.join(out_dir, "offline.html")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"      单文件离线版 → {os.path.relpath(out, out_dir)} ({os.path.getsize(out)//1024} KB)")
+
+
 def default_config():
     cfg_path = os.path.join(BASE, "config.json")
     base = {"max_items_per_category": 90, "max_age_hours": 120, "llm": {}}
@@ -130,6 +176,9 @@ def build(out_dir: str, articles_per_cat: int, cfg: dict | None = None):
 
     # GitHub Pages 需要跳过 Jekyll 处理
     open(os.path.join(out_dir, ".nojekyll"), "w").close()
+
+    # 单文件离线版：把数据内联进 HTML，双击即可打开，无需服务器
+    make_standalone(out_dir)
 
     total_kb = sum(
         os.path.getsize(os.path.join(dp, f)) / 1024
