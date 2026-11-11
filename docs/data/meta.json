@@ -1,8 +1,8 @@
 {
-  "generated_at": 1794371671.0191035,
-  "generated_at_iso": "2026-11-11 04:34:31",
+  "generated_at": 1794372172.3006861,
+  "generated_at_iso": "2026-11-11 04:42:52",
   "engine": "mymemory",
-  "elapsed": 371.0,
+  "elapsed": 360.6,
   "categories": {
     "ai": {
       "label": "前沿 AI",
@@ -51,8 +51,8 @@
       "category": "ai",
       "lang": "zh",
       "desc": "产品与行业深度",
-      "ok": true,
-      "count": 30
+      "ok": false,
+      "count": 0
     },
     {
       "id": "solidot",
@@ -209,9 +209,9 @@
     }
   ],
   "totals": {
-    "fetched": 574,
+    "fetched": 544,
     "kept": 202,
-    "sources_ok": 21,
+    "sources_ok": 20,
     "sources_total": 21
   }
 }
