@@ -624,7 +624,7 @@ function renderHealth() {
 
   const chips = `<div class="topic-row">
     <button class="topic-chip ${!state.topic ? "on" : ""}" data-topic="">
-      <b>全部</b><span>四个主题总览</span></button>
+      <b>全部</b><span>${meta.topics.length} 个主题总览</span></button>
     ${meta.topics.map((t) => {
       const n = state.items.filter((i) => i.topic === t.id).length;
       return `<button class="topic-chip ${state.topic === t.id ? "on" : ""}" data-topic="${t.id}">
@@ -635,12 +635,13 @@ function renderHealth() {
   let body = "";
 
   if (!state.topic) {
-    // 总览：四个主题的要点预览
+    // 总览：每个主题的要点预览（有治疗方案的就先看治疗）
     $("#feed-sub").textContent = "点击主题查看完整要点与相关文献";
     body = meta.topics.map((t) => {
       const g = meta.guides[t.id];
       if (!g) return "";
       const n = state.items.filter((i) => i.topic === t.id).length;
+      const hi = g.tx ? { title: "治疗与用药", list: g.tx } : { title: "饮食要点", list: g.diet };
       return `<article class="guide" data-goto="${t.id}" style="cursor:pointer">
         <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:10px">
           <h3 style="font-size:15px;font-weight:700;color:var(--hl)">${esc(t.name)}</h3>
@@ -648,8 +649,8 @@ function renderHealth() {
         </div>
         <div class="guide-lead">${esc(g.headline)}</div>
         <div class="gsec" style="margin-bottom:0">
-          <h5>饮食要点</h5>
-          ${g.diet.slice(0, 3).map((d) => `<div class="gitem"><span class="gt">${esc(d.t)}</span><span class="gd">${esc(d.d)}</span></div>`).join("")}
+          <h5>${hi.title}</h5>
+          ${hi.list.slice(0, 3).map((d) => `<div class="gitem"><span class="gt">${esc(d.t)}</span><span class="gd">${esc(d.d)}</span></div>`).join("")}
         </div>
         <div style="margin-top:11px;font-size:12px;color:var(--hl);font-weight:600">展开完整要点 ›</div>
       </article>`;
@@ -676,6 +677,9 @@ function renderHealth() {
       <div class="guide-lead">${esc(g.headline)}</div>
       <div class="guide-intro">${esc(g.intro)}</div>
 
+      ${g.tx ? `<div class="gsec"><h5>治疗与用药</h5>
+        ${g.tx.map((d) => `<div class="gitem"><span class="gt">${esc(d.t)}</span><span class="gd">${esc(d.d)}</span></div>`).join("")}
+      </div>` : ""}
       <div class="gsec"><h5>饮食</h5>
         ${g.diet.map((d) => `<div class="gitem"><span class="gt">${esc(d.t)}</span><span class="gd">${esc(d.d)}</span></div>`).join("")}
       </div>
