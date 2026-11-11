@@ -4,6 +4,9 @@
 
 **没有缩水摘要，没有标题党绕弯，没有信息流广告。**
 
+**线上地址：https://icefocus-g.github.io/signal-tower/**
+**仓库：https://github.com/icefocus-G/signal-tower**
+
 ---
 
 ## 三个栏目
@@ -44,43 +47,37 @@
 
 ---
 
-## 部署到 GitHub Pages（一劳永逸）
+## 部署状态（已完成）
 
-### 1. 新建仓库并推送
+| 项目 | 状态 |
+|---|---|
+| 仓库 | `icefocus-G/signal-tower`（public） |
+| 站点 | https://icefocus-g.github.io/signal-tower/ |
+| Pages | main 分支 `/docs` 目录，已启用 |
+| Actions 写权限 | 已设为 Read and write |
+| 首次构建 | 通过，21/21 源在线，574 条 → 保留 202 条 |
+| 定时 | 每天北京时间 07:00、15:00（UTC 23:00、07:00） |
+
+`push` 到 main 也会触发一次构建，所以改完代码推上去就能看到新数据。
+
+### 换一台机器 / 重建站点时的步骤
 
 ```bash
-cd newsradar
-git init
-git add .
-git commit -m "init: 信号塔"
-git branch -M main
-git remote add origin https://github.com/<你的用户名>/signal-tower.git
-git push -u origin main
+git clone https://github.com/icefocus-G/signal-tower.git
+cd signal-tower
+python3 build.py --out docs --articles 20   # 本地验证
+git add -A && git commit -m "update" && git push
 ```
 
-### 2. 开启 Actions 写权限
+推上去后 Actions 会自动重建并回写 `docs/`，Pages 自动更新。
 
-仓库 → **Settings → Actions → General → Workflow permissions** → 选 **Read and write permissions** → Save。
-
-> 这一步不做，定时任务会因为没有推送权限而失败。
-
-### 3. 开启 Pages
-
-仓库 → **Settings → Pages** → Source 选 **Deploy from a branch** → Branch 选 **main**、目录选 **`/docs`** → Save。
-
-大约 1 分钟后访问 `https://<你的用户名>.github.io/signal-tower/`。
-
-### 4. 首次手动触发
-
-仓库 → **Actions** → 左侧「每日构建」→ **Run workflow**。跑完 `docs/` 目录里就有数据了。
-
-之后每天北京时间 **07:00 和 15:00** 自动重建（`.github/workflows/daily.yml` 里的 cron 可改）。
+> 定时任务与手动触发可能同时跑，`daily.yml` 的提交步骤已带 rebase 重试；`docs/` 是构建产物，冲突时保留本次构建结果。
 
 ---
 
 ## 提升翻译质量（可选）
 
-默认走免费翻译接口。GitHub Actions 跑在境外，会自动使用 Google 翻译端点，质量优于 MyMemory。
+默认走免费翻译接口。GitHub Actions 跑在境外，会自动使用 Google 翻译端点，质量优于 MyMemory。（实测 Actions 上仍走了 MyMemory，说明 Google 端点在运行环境里被探测为不可用，属正常降级。）
 
 想让译文更准确，可以接自己的大模型：
 
@@ -132,7 +129,13 @@ newsradar/
 ├── server.py         本地动态服务
 ├── config.json       配置
 ├── static/index.html 前端（单文件，无框架）
-└── .github/workflows/daily.yml
+├── docs/             GitHub Pages 产物（由构建生成，勿手改）
+│   ├── index.html
+│   ├── offline.html  单文件离线版，数据内联
+│   └── data/*.json   各栏目数据
+└── .github/
+    ├── workflows/daily.yml  每日构建
+    └── summary.py     构建摘要（Steps Summary）
 ```
 
 ---
@@ -171,7 +174,8 @@ curl -sL "https://example.com/feed" | head -c 80
 - 医学内容为公开指南整理，**不构成诊疗建议**，具体方案请咨询医生
 - 中文健康类 RSS 生态基本消亡（丁香医生、果壳、健康时报均无可用订阅源），养生栏目以指南要点和英文文献为主
 - 部分源有反爬（机器之心、36氪、量子位、观察者网已失效并从清单移除）
-- 免费翻译有速率限制，条目多时构建需要 1–2 分钟
+- The Verge 与 arXiv 在境内不通、在 GitHub Actions 可达——所以本地构建时这两个源会显示异常，线上是 21/21 全在线
+- 免费翻译有速率限制，条目多时构建需要 2–7 分钟（实测 Actions 上 395 秒）
 
 ---
 
