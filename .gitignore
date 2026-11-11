@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 本地缓存（翻译记忆、文章缓存）
+cache/
+
+# 构建产物：dist 是本地预览，不进仓库
+dist/
+
+# 配置文件可能含 API Key，本地自建，不入库
+config.json
+
+# 系统
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# playwright 快照
+.playwright-cli/
