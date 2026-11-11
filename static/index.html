@@ -355,6 +355,7 @@ const state = {
   zhShown: new Set(JSON.parse(localStorage.getItem("st_zh") || "[]")),
   mode: "static",      // static | api | inline
   checking: false,     // 正在核对云端是否有更新
+  checkedOnce: false,  // 本次会话是否已核对过
   dataVersion: "",     // 当前数据的内容指纹（用作 CDN 绕过参数）
   read: new Set(JSON.parse(localStorage.getItem("st_read") || "[]")),
   stat: null,
@@ -481,9 +482,9 @@ function renderStatus() {
   } else if (state.mode === "api") {
     syncPill = '<span class="pill"><span class="dot"></span>本地服务</span>';
   } else if (state.checking) {
-    syncPill = '<span class="pill"><span class="dot warn"></span>正在检查更新</span>';
+    syncPill = '<span class="pill"><span class="dot warn"></span>正在核对</span>';
   } else {
-    syncPill = '<span class="pill"><span class="dot"></span>自动更新中</span>';
+    syncPill = '<span class="pill">每日简报</span>';
   }
 
   el.innerHTML = `
@@ -495,8 +496,8 @@ function renderStatus() {
     ${syncPill}
   `;
   $("#foot-meta").textContent =
-    `上次构建 ${m.generated_at_iso || when} · 耗时 ${m.elapsed || "?"}s · ${total.sources_total || "—"} 个源` +
-    (state.mode === "static" ? " · 云端每 15 分钟自查一次" : "");
+    `上次生成 ${m.generated_at_iso || when} · 耗时 ${m.elapsed || "?"}s · ${total.sources_total || "—"} 个源` +
+    (state.mode === "static" ? " · 每天 07:00 自动更新" : "");
 }
 
 function renderRail() {
@@ -965,7 +966,7 @@ async function checkForUpdate(opts) {
       return true;
     }
     renderStatus();
-    if (manual) toast("已是最新 · 云端每 15 分钟自查一次");
+    if (manual) toast("已是最新 · 每天 07:00 自动生成");
     return false;
   } catch (e) {
     state.checking = false;
@@ -1002,26 +1003,20 @@ async function reload(manual) {
 }
 
 const POLL_MS = 90 * 1000;
-let lastFocusCheck = 0;
 
+/**
+ * 每日简报的刷新策略：不做实时轮询。
+ * 打开页面时核对一次（保证看到的是最近一次生成），之后只有你点刷新才去查。
+ */
 function startAutoUpdate() {
   if (state.mode !== "static") return;
-  // 页面前台时每 90 秒核对一次；切回标签页/重新聚焦立刻核一次
-  setInterval(() => {
-    if (document.hidden) return;
-    checkForUpdate({ manual: false });
-  }, POLL_MS);
-
+  // 从后台切回来时补一次，避免"早上开的页面挂到下午还是旧数据"
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) checkForUpdate({ manual: false });
+    if (!document.hidden && !state.checkedOnce) {
+      state.checkedOnce = true;
+      checkForUpdate({ manual: false });
+    }
   });
-  window.addEventListener("focus", () => {
-    const now = Date.now();
-    if (now - lastFocusCheck < 20000) return;
-    lastFocusCheck = now;
-    checkForUpdate({ manual: false });
-  });
-  window.addEventListener("online", () => checkForUpdate({ manual: false }));
 }
 
 async function boot() {

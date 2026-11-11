@@ -139,12 +139,24 @@ INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 """
 
+# 项目绝对路径烘进启动器：Finder 调起时 $0 与 cwd 都不可靠，
+# 先把日志通道打开，再定位项目，任何一步出错都留得下痕迹。
 LAUNCHER = """#!/bin/bash
-# 双击图标时由 Finder 调起：没有终端，用系统通知反馈进度。
-# 日志写在 build/ 下，因为 build.py 会整个重建 docs/，放那里会被删掉。
-cd "$(dirname "$0")/../../.." || exit 1
-mkdir -p build
-exec ./refresh.sh >>"build/refresh.log" 2>&1
+PROJ="__PROJECT__"
+
+# 应用被单独拖走时，退回按包位置推断
+if [ ! -x "$PROJ/refresh.sh" ]; then
+  PROJ="$(cd "$(dirname "$0")/../../.." && pwd)"
+fi
+
+LOG="$PROJ/build/refresh.log"
+mkdir -p "$PROJ/build" 2>/dev/null
+exec >>"$LOG" 2>&1
+echo "---- $(date '+%Y-%m-%d %H:%M:%S') 由图标启动 ----"
+echo "PROJ=$PROJ"
+
+cd "$PROJ" || { echo "无法进入 $PROJ"; exit 1; }
+exec ./refresh.sh
 """
 
 
@@ -161,12 +173,23 @@ def make_app(icns_path):
 
     launch = os.path.join(macos, "launch")
     with open(launch, "w", encoding="utf-8") as f:
-        f.write(LAUNCHER)
+        f.write(LAUNCHER.replace("__PROJECT__", BASE))
     os.chmod(launch, 0o755)
 
     if icns_path and os.path.exists(icns_path):
         with open(icns_path, "rb") as s, open(os.path.join(res, "icon.icns"), "wb") as d:
             d.write(s.read())
+
+    # Apple Silicon 上可执行文件必须有签名，否则内核直接拒绝运行（双击毫无反应）。
+    # 自用应用 ad-hoc 签名即可，不需要开发者证书。
+    sign = subprocess.run(
+        ["codesign", "--force", "--deep", "--sign", "-", APP],
+        capture_output=True, text=True,
+    )
+    if sign.returncode != 0:
+        print(f"  ! 签名失败：{sign.stderr.strip()[:120]}")
+    else:
+        print("  已做 ad-hoc 签名")
 
     # 让 Finder 立刻刷新图标缓存
     subprocess.run(["touch", APP], check=False)

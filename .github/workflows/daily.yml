@@ -1,20 +1,19 @@
-name: 更新站点
+name: 每日简报
 
-# 三档触发：
-#   */15  —— 增量：只翻标题，约 1 分钟，保证页面数据不会太久
-#   0 23,7 —— 全量：标题 + 摘要 + 正文，每天两次（北京 07:00 / 15:00）
-#   push  —— 改代码后立即重建
+# 定位是「每日简报」，不是实时快讯：
+#   0 23   —— 每天北京 07:00 生成一次全量简报（标题 + 摘要 + 正文）
+#   push   —— 改代码后立即重建
+#   手动   —— 想立刻刷新就点 Run workflow
 on:
   schedule:
-    - cron: "*/15 * * * *"
-    - cron: "0 23,7 * * *"
+    - cron: "0 23 * * *"
   workflow_dispatch:
     inputs:
       mode:
         description: "构建档位"
         type: choice
-        options: [incremental, full]
-        default: incremental
+        options: [full, incremental]
+        default: full
   push:
     branches: [main]
 
@@ -32,7 +31,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
-      changed: ${{ steps.build.outputs.changed }}
       mode: ${{ steps.mode.outputs.mode }}
     steps:
       - name: 检出仓库
@@ -55,13 +53,13 @@ jobs:
       - name: 判定构建档位
         id: mode
         run: |
-          MODE=incremental
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "0 23,7 * * *" ]; then
-            MODE=full
-          fi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.mode }}" = "full" ]; then
-            MODE=full
-          fi
+          # 定时与手动默认全量；push 只要快速验证代码没坏，跑增量档
+          case "${{ github.event_name }}" in
+            schedule) MODE=full ;;
+            workflow_dispatch) MODE="${{ inputs.mode }}" ;;
+            *) MODE=incremental ;;
+          esac
+          [ "$MODE" = "full" ] || MODE=incremental
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
           echo "本次档位：$MODE"
 
@@ -75,16 +73,11 @@ jobs:
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
           MODE: ${{ steps.mode.outputs.mode }}
         run: |
+          # 每日简报不做"内容没变就不发"的判断——简报本身要体现今天这次生成
           if [ "$MODE" = "full" ]; then
-            OUT=$(python build.py --out docs --articles 20 --translate full --skip-if-unchanged 2>&1)
+            python build.py --out docs --articles 20 --translate full
           else
-            OUT=$(python build.py --out docs --articles 0 --translate title --skip-if-unchanged 2>&1)
-          fi
-          echo "$OUT"
-          if echo "$OUT" | grep -q "跳过发布"; then
-            echo "changed=0" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=1" >> "$GITHUB_OUTPUT"
+            python build.py --out docs --articles 0 --translate title
           fi
 
       - name: 保留构建摘要
@@ -94,20 +87,18 @@ jobs:
           {
             echo "## 构建结果"
             echo
-            echo "档位：\`${{ steps.mode.outputs.mode }}\`　本次是否有变化：\`${{ steps.build.outputs.changed }}\`"
+            echo "档位：\`${{ steps.mode.outputs.mode }}\`"
             echo
             python3 .github/summary.py
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 打包站点
-        if: steps.build.outputs.changed == '1'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs
 
   deploy:
     needs: build
-    if: needs.build.outputs.changed == '1'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

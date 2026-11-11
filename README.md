@@ -47,21 +47,21 @@
 
 ---
 
-## 「打开网页就能拿到最新」
+## 它是一份每日简报，不是实时快讯
 
-GitHub Pages 是纯静态托管，没有后端可跑，所以"实时抓取"只能靠两条腿：
+定位很明确：**每天早上给你一份整理好的三栏简报，感兴趣的条目自己点进去看原文。**
 
-**一、页面自己会核对。** 打开页面时先加载数据（秒开），随后立刻带时间戳请求 `meta.json` 穿透 CDN 缓存，比对 `content_hash`；之后每 90 秒核对一次，切回标签页、重新聚焦、网络恢复时各补一次。指纹变了就静默换掉数据并提示，没变就什么也不做，不打断你正在看的内容。状态栏实时显示「数据 X 分钟前」，超过 1 小时变红。
+- **云端**：每天北京 07:00 生成一次全量简报（标题 + 摘要 + 正文），发布到 GitHub Pages。
+- **页面**：打开时带时间戳请求 `meta.json` 穿透 CDN 缓存，比对 `content_hash`——万一当天已经重新生成过，你看到的就是新那份；没变化就什么也不做。**不做定时轮询**，不会在你看的时候偷偷换数据。
+- **手动**：右上角刷新按钮，随时核对一次，会明确告诉你「已是最新」还是「已获取最新内容」。
 
-**二、云端 15 分钟自查一次。** Actions 每 15 分钟跑一次增量构建（只翻标题，约 1 分钟），每天两次全量构建（标题 + 摘要 + 正文）。
+状态栏显示「数据 X 小时前」，超过 1 小时标红——一眼就知道这份简报是不是今天的。
 
-两者叠加的效果：**你打开页面时，看到的数据最多比真实世界晚十几分钟**（GitHub 的 cron 有排队延迟，实测 0–10 分钟）。
+### 关于"实时"
 
-### 为什么不是真·实时
+试过，但这条路在境内不成立：浏览器直接抓 RSS 需要 CORS 放行，实测 `allorigins`、`codetabs`、`corsproxy`、`cors.lol` 全部不可用（000 / 401 / 429），中文源自身也不发 CORS 头。要秒级实时只能自建服务器或 Worker，或者页面里填一个能触发 Actions 的 Token——为一份每日简报不值得。
 
-浏览器直接抓 RSS 需要 CORS 放行。实测境内网络下 `allorigins`、`codetabs`、`corsproxy`、`cors.lol` 全部不可用（000 / 401 / 429），中文源自身也不发 CORS 头。要秒级实时，只有两条路：自己的服务器/Cloudflare Worker，或者页面里填一个能触发 Actions 的 Token。前者要额外账号，后者要你手动配置一次——所以默认没做。
-
-另外 GitHub 的 cron 本身允许延迟 5–20 分钟，新加的 schedule 还要等 GitHub 侧注册。**所以真正"打开就是刚抓的"只能靠本地那一键。**
+GitHub 的 cron 本身也允许延迟 5–20 分钟。**所以真正的"立刻拿到刚抓的"，只有本地那一键。**
 
 ---
 
@@ -109,7 +109,7 @@ App 版没有终端，输出写在 `build/refresh.log`（不能放 `docs/`，那
 | 站点 | https://icefocus-g.github.io/signal-tower/ |
 | 单文件版 | https://icefocus-g.github.io/signal-tower/offline.html |
 | Pages | **由 Actions 产物部署**（`build_type: workflow`），不再从分支目录读 |
-| 定时 | 每 15 分钟增量（`*/15`）+ 每天 07:00 / 15:00 全量（UTC 23:00 / 07:00） |
+| 定时 | 每天北京 07:00 生成一次全量简报（UTC 23:00） |
 | 翻译缓存 | 用 `actions/cache` 跨次复用，冷启动翻译几百条，热缓存只翻新增 |
 
 `push` 到 main 会立即重建。数据不再提交进 git，所以高频构建不会把仓库撑大。
@@ -117,12 +117,12 @@ App 版没有终端，输出写在 `build/refresh.log`（不能放 `docs/`，那
 ### 三档构建
 
 ```bash
-python3 build.py --out docs --articles 0  --translate title  # 增量：约 1 分钟
-python3 build.py --out docs --articles 20 --translate full   # 全量：标题+摘要+正文
-python3 build.py --out docs --translate none                 # 只抓不译
+python3 build.py --out docs --articles 20 --translate full   # 全量简报（云端每天用这个）
+python3 build.py --out docs --articles 0  --translate title   # 快速版：只翻标题，约 1 分钟
+python3 build.py --out docs --translate none                  # 只抓不译
 ```
 
-加 `--skip-if-unchanged` 时，若条目与译文跟上一版完全一致，不重写、不发布。这靠 `content_hash` 判断——为了让指纹稳定，抓取结果会先按「来源 / 时间 / guid」排一次序，去重和同分排序都只由内容决定，不受并发完成顺序影响。
+加 `--skip-if-unchanged` 时，若条目与译文跟上一版完全一致就不重写、不发布（靠 `content_hash` 判断）。为了让指纹稳定，抓取结果会先按「来源 / 时间 / guid」排一次序，去重和同分排序只由内容决定，不受并发完成顺序影响。云端每日简报**不用**这个开关——简报本身要体现当天这次生成。
 
 ### 换一台机器 / 本地重建
 
