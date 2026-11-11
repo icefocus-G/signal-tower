@@ -261,11 +261,21 @@ def main():
         action="store_true",
         help="内容指纹与上一版一致时不重写产物（供定时任务用，减少无意义发布）",
     )
+    ap.add_argument(
+        "--max-age-hours",
+        type=float,
+        default=None,
+        help="只保留最近 N 小时内的条目（默认用 config.json，缺省 120 小时）",
+    )
     args = ap.parse_args()
     try:
+        cfg = default_config()
+        if args.max_age_hours:
+            cfg["max_age_hours"] = args.max_age_hours
         build(
             args.out,
             args.articles,
+            cfg=cfg,
             translate_mode=args.translate,
             skip_if_unchanged=args.skip_if_unchanged,
         )

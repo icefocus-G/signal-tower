@@ -9,6 +9,7 @@ cache/
 # 构建产物：由 Actions 生成后直接部署，不进仓库
 dist/
 docs/
+build/
 
 # 配置文件可能含 API Key，本地自建，不入库
 config.json
@@ -21,3 +22,7 @@ Thumbs.db
 
 # playwright 快照
 .playwright-cli/
+
+# 本地生成的启动器（由 tools/make_app.py 生成）
+信号塔.app/
+刷新.command

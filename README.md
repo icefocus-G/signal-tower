@@ -61,6 +61,44 @@ GitHub Pages 是纯静态托管，没有后端可跑，所以"实时抓取"只�
 
 浏览器直接抓 RSS 需要 CORS 放行。实测境内网络下 `allorigins`、`codetabs`、`corsproxy`、`cors.lol` 全部不可用（000 / 401 / 429），中文源自身也不发 CORS 头。要秒级实时，只有两条路：自己的服务器/Cloudflare Worker，或者页面里填一个能触发 Actions 的 Token。前者要额外账号，后者要你手动配置一次——所以默认没做。
 
+另外 GitHub 的 cron 本身允许延迟 5–20 分钟，新加的 schedule 还要等 GitHub 侧注册。**所以真正"打开就是刚抓的"只能靠本地那一键。**
+
+---
+
+## 双击图标，生成今天的内容
+
+仓库根目录有一个 **`信号塔.app`**，双击它就会：
+
+```
+抓 21 个源 → 去重过滤 → 翻英文标题 → 生成 docs/offline.html → 自动打开浏览器
+```
+
+通常 **8–15 秒**（翻译缓存热的情况下）。全程弹系统通知报进度，不需要终端、不需要服务器、不占端口——因为 `offline.html` 把数据内联进了页面本身，`file://` 直接打开就能用。
+
+另一个入口 **`刷新.command`** 效果相同，但会开个终端窗口显示完整抓取日志，适合想看细节的时候。
+
+### 重建启动器
+
+图标和 `.app` 都是脚本生成的，换机器或改了图标设计后重跑一次即可：
+
+```bash
+python3 tools/make_app.py
+```
+
+产物：`信号塔.app`（可拖到 Dock 或桌面）、`刷新.command`、`build/icon.icns`。图标是纯 Python 画的——手写 PNG + `iconutil`，不依赖任何图形库。
+
+### 只保留今天的
+
+双击图标用的是 `--max-age-hours 48`，只留最近两天的条目。想要更严格的当天内容：
+
+```bash
+python3 build.py --out docs --articles 0 --translate title --max-age-hours 24
+```
+
+### 出问题看日志
+
+App 版没有终端，输出写在 `build/refresh.log`（不能放 `docs/`，那边每次构建会被整个重建）。
+
 ---
 
 ## 部署状态（已完成）
