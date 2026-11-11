@@ -19,7 +19,8 @@ import zlib
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD = os.path.join(BASE, "build")
-APP = os.path.join(BASE, "信号塔.app")
+APP = os.path.expanduser("~/Applications/信号塔.app")
+DESKTOP = os.path.expanduser("~/Desktop/信号塔.app")
 
 SIZE = 1024
 
@@ -120,68 +121,61 @@ def make_icns():
 
 # ---------------- 应用包 ----------------
 
-INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key><string>信号塔</string>
-    <key>CFBundleDisplayName</key><string>信号塔</string>
-    <key>CFBundleIdentifier</key><string>local.signaltower.refresh</string>
-    <key>CFBundleVersion</key><string>1.0</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleExecutable</key><string>launch</string>
-    <key>CFBundleIconFile</key><string>icon</string>
-    <key>LSMinimumSystemVersion</key><string>11.0</string>
-    <key>NSHighResolutionCapable</key><true/>
-    <key>LSBackgroundOnly</key><false/>
-</dict>
-</plist>
+INFO_PLIST = ""  # 交给 osacompile 生成，不再手拼
+
+# 双击后只做两件事：报个进度，然后把 refresh.sh 丢到后台。
+# 项目路径烘死在这里——Finder 调起时 cwd 是 /，不能靠相对路径。
+APPLESCRIPT = """on run
+\tset proj to "__PROJECT__"
+\tdisplay notification "正在抓取，约 10 秒后自动打开…" with title "信号塔"
+\tdo shell script "cd " & quoted form of proj & " && ./refresh.sh >/dev/null 2>&1 &"
+end run
 """
 
-# 项目绝对路径烘进启动器：Finder 调起时 $0 与 cwd 都不可靠，
-# 先把日志通道打开，再定位项目，任何一步出错都留得下痕迹。
-LAUNCHER = """#!/bin/bash
-PROJ="__PROJECT__"
 
-# 应用被单独拖走时，退回按包位置推断
-if [ ! -x "$PROJ/refresh.sh" ]; then
-  PROJ="$(cd "$(dirname "$0")/../../.." && pwd)"
-fi
-
-LOG="$PROJ/build/refresh.log"
-mkdir -p "$PROJ/build" 2>/dev/null
-exec >>"$LOG" 2>&1
-echo "---- $(date '+%Y-%m-%d %H:%M:%S') 由图标启动 ----"
-echo "PROJ=$PROJ"
-
-cd "$PROJ" || { echo "无法进入 $PROJ"; exit 1; }
-exec ./refresh.sh
-"""
+def _plist_set(plist, key, value):
+    """先 Set 再 Add——键存在与否都能落定，不用先查。"""
+    for cmd in (f"Set :{key} {value}", f"Add :{key} string {value}"):
+        r = subprocess.run(
+            ["/usr/libexec/PlistBuddy", "-c", cmd, plist],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            return
 
 
 def make_app(icns_path):
+    """用 osacompile 生成真正的 applet。
+
+    这里踩过坑：早前版本自己拼 bundle，把 bash 脚本当 CFBundleExecutable。
+    命令行执行脚本没问题，但 Finder 双击时 LaunchServices 拿到的不是 Mach-O，
+    app 直接起不来（spctl 也是 rejected）。osacompile 产出的 main 是系统编译的
+    通用二进制，双击链路才正常，图标和名称再另外贴上去。
+    """
+    os.makedirs(os.path.dirname(APP), exist_ok=True)
     if os.path.isdir(APP):
         subprocess.run(["rm", "-rf", APP], check=True)
-    macos = os.path.join(APP, "Contents", "MacOS")
-    res = os.path.join(APP, "Contents", "Resources")
-    os.makedirs(macos, exist_ok=True)
-    os.makedirs(res, exist_ok=True)
 
-    with open(os.path.join(APP, "Contents", "Info.plist"), "w", encoding="utf-8") as f:
-        f.write(INFO_PLIST)
+    src = APPLESCRIPT.replace("__PROJECT__", BASE)
+    r = subprocess.run(["osacompile", "-o", APP, "-e", src],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"  ! osacompile 失败：{r.stderr.strip()[:160]}")
+        return False
 
-    launch = os.path.join(macos, "launch")
-    with open(launch, "w", encoding="utf-8") as f:
-        f.write(LAUNCHER.replace("__PROJECT__", BASE))
-    os.chmod(launch, 0o755)
-
+    # 换成自己画的图标
     if icns_path and os.path.exists(icns_path):
-        with open(icns_path, "rb") as s, open(os.path.join(res, "icon.icns"), "wb") as d:
+        dst = os.path.join(APP, "Contents", "Resources", "applet.icns")
+        with open(icns_path, "rb") as s, open(dst, "wb") as d:
             d.write(s.read())
 
-    # Apple Silicon 上可执行文件必须有签名，否则内核直接拒绝运行（双击毫无反应）。
-    # 自用应用 ad-hoc 签名即可，不需要开发者证书。
+    plist = os.path.join(APP, "Contents", "Info.plist")
+    _plist_set(plist, "CFBundleName", "信号塔")
+    _plist_set(plist, "CFBundleDisplayName", "信号塔")
+    _plist_set(plist, "LSMinimumSystemVersion", "11.0")
+
+    # 改过 Resources 就得重签，否则签名与内容对不上，Gatekeeper 直接拦
+    subprocess.run(["rm", "-rf", os.path.join(APP, "Contents", "_CodeSignature")], check=False)
     sign = subprocess.run(
         ["codesign", "--force", "--deep", "--sign", "-", APP],
         capture_output=True, text=True,
@@ -191,9 +185,12 @@ def make_app(icns_path):
     else:
         print("  已做 ad-hoc 签名")
 
-    # 让 Finder 立刻刷新图标缓存
+    # 桌面上只放链接：iCloud 桌面同步会改写 .app 包，签名一破就打不开了
+    subprocess.run(["ln", "-sfn", APP, DESKTOP], check=False)
     subprocess.run(["touch", APP], check=False)
     print(f"  应用 → {APP}")
+    print(f"  桌面 → {DESKTOP}（指向上面的链接）")
+    return True
 
 
 def main():
@@ -209,7 +206,7 @@ def main():
     os.chmod(cmd, 0o755)
     os.chmod(os.path.join(BASE, "refresh.sh"), 0o755)
     print(f"  终端版 → 刷新.command")
-    print("\n完成。双击「信号塔.app」或「刷新.command」即可。")
+    print("\n完成。双击桌面的「信号塔」，或项目里的「刷新.command」。")
     return 0
 
 

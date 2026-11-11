@@ -68,7 +68,7 @@ GitHub 的 cron 本身也允许延迟 5–20 分钟。**所以真正的"立刻�
 
 ## 双击图标，生成今天的内容
 
-项目根目录和**桌面**各有一个 **`信号塔.app`**，双击它就会：
+项目根目录有 **`刷新.command`**，桌面有 **`信号塔`** 图标（指向 `~/Applications/信号塔.app`），双击它就会：
 
 ```
 抓 21 个源 → 去重过滤 → 翻英文标题 → 生成 docs/offline.html → 自动打开浏览器
@@ -86,7 +86,11 @@ GitHub 的 cron 本身也允许延迟 5–20 分钟。**所以真正的"立刻�
 python3 tools/make_app.py
 ```
 
-产物：`信号塔.app`（可拖到 Dock 或桌面）、`刷新.command`、`build/icon.icns`。图标是纯 Python 画的——手写 PNG + `iconutil`，不依赖任何图形库。
+产物：`~/Applications/信号塔.app`、桌面链接、项目里的 `刷新.command`、`build/icon.icns`。图标是纯 Python 画的——手写 PNG + `iconutil`，不依赖任何图形库。
+
+**为什么用 `osacompile` 而不是自己拼 bundle**：`.app` 的主可执行文件必须是 Mach-O 二进制。早前版本把 bash 脚本直接写成 `CFBundleExecutable`，命令行跑得好好的，Finder 双击却起不来——LaunchServices 拿到的不是可执行映像，`spctl` 也判 rejected。`osacompile` 生成的 applet 是系统编译的通用二进制，图标和名字另外贴上去就行。
+
+**为什么桌面只放链接**：`~/Desktop` 在 iCloud 同步范围内（`com~apple~CloudDocs/Desktop`），同步会改写文件、破坏 `.app` 的签名。app 放在 `~/Applications`（本地、不同步），桌面只留一个 42 字节的符号链接。
 
 ### 只保留今天的
 
@@ -119,10 +123,11 @@ push 到 main **不再触发构建**，只有 Actions 页面的 `Run workflow` �
 
 ```
 /Volumes/02-program/[0000]AI程序操作/AI-新闻/     ← 项目根（源码 + 产物 + 缓存）
-~/Desktop/信号塔.app                             ← 桌面图标，双击生成今天的内容
+~/Applications/信号塔.app                       ← 真正的应用（本地磁盘，不进 iCloud）
+~/Desktop/信号塔.app -> 上面那个                 ← 桌面图标是个符号链接
 ```
 
-桌面那份是 `.app` 的副本，启动脚本里写死了项目根路径，所以换位置后要重跑一次 `python3 tools/make_app.py` 再复制到桌面。
+改了项目位置或重画了图标，跑一次 `python3 tools/make_app.py`，app 与桌面链接会一起重建。
 
 ### 三档构建
 
