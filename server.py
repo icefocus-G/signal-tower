@@ -32,7 +32,7 @@ ARTICLE_CACHE = os.path.join(CACHE_DIR, "articles.json")
 REFRESH_MINUTES = 20
 
 DEFAULT_CONFIG = {
-    "port": 8787,
+    "port": 8890,
     "refresh_minutes": 20,
     "max_items_per_category": 90,
     "max_age_hours": 120,
@@ -408,11 +408,24 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    port = int(os.environ.get("PORT") or CFG.get("port", 8787))
+    port = int(os.environ.get("PORT") or CFG.get("port", 8890))
+
+    # 端口被占用时自动顺延，避免启动失败
+    srv = None
+    for candidate in range(port, port + 12):
+        try:
+            srv = ThreadingHTTPServer(("127.0.0.1", candidate), Handler)
+            port = candidate
+            break
+        except OSError:
+            continue
+    if srv is None:
+        print(f"错误：{port}-{port+11} 端口都被占用，请设置 PORT 环境变量")
+        sys.exit(1)
+
     threading.Thread(target=background_loop, daemon=True).start()
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print("=" * 56)
-    print("  信号塔 · 前沿 AI / 时政聚合")
+    print("  信号塔 · 前沿 AI / 时政 / 养生")
     print(f"  http://127.0.0.1:{port}")
     print(f"  翻译引擎: {'LLM' if STORE.translator.enabled else '免费接口（可在 config.json 配 Key 升级）'}")
     print(f"  源数量: {len(S.SOURCES)}   刷新间隔: {CFG.get('refresh_minutes')} 分钟")

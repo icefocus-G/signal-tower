@@ -101,7 +101,7 @@ git push -u origin main
 ```bash
 # 方式一：动态服务（带全文抓取、点开即翻）
 python3 server.py
-open http://127.0.0.1:8787
+open http://127.0.0.1:8890
 
 # 方式二：构建静态文件
 python3 build.py --out dist --articles 20

@@ -4,7 +4,7 @@
 
 cd "$(dirname "$0")" || exit 1
 
-PORT=8787
+PORT=8890
 
 # 端口被占用就先清理
 if lsof -ti tcp:$PORT >/dev/null 2>&1; then
