@@ -1,8 +1,8 @@
 {
-  "generated_at": 1794372172.3006861,
-  "generated_at_iso": "2026-11-11 04:42:52",
+  "generated_at": 1794372907.1224074,
+  "generated_at_iso": "2026-11-11 04:55:07",
   "engine": "mymemory",
-  "elapsed": 360.6,
+  "elapsed": 377.3,
   "categories": {
     "ai": {
       "label": "前沿 AI",
@@ -51,8 +51,8 @@
       "category": "ai",
       "lang": "zh",
       "desc": "产品与行业深度",
-      "ok": false,
-      "count": 0
+      "ok": true,
+      "count": 30
     },
     {
       "id": "solidot",
@@ -205,13 +205,13 @@
       "lang": "zh",
       "desc": "健康频道，仅保留与四个代谢主题相关的内容",
       "ok": true,
-      "count": 23
+      "count": 24
     }
   ],
   "totals": {
-    "fetched": 544,
+    "fetched": 575,
     "kept": 202,
-    "sources_ok": 20,
+    "sources_ok": 21,
     "sources_total": 21
   }
 }
