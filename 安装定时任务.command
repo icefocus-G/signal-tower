@@ -32,15 +32,21 @@ cat > "$PLIST" <<PLIST_EOF
     <dict>
         <key>ST_NO_OPEN</key>
         <string>1</string>
+        <key>ST_SKIP_FRESH</key>
+        <string>1</string>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
+    <!-- 登录后立刻检查一次：关机错过的定时任务，launchd 不会补，
+         只有 RunAtLoad 能保证「一开机就有今天的简报」。 -->
+    <key>RunAtLoad</key>
+    <true/>
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
-        <integer>7</integer>
+        <integer>9</integer>
         <key>Minute</key>
-        <integer>0</integer>
+        <integer>5</integer>
     </dict>
     <key>StandardOutPath</key>
     <string>$DIR/build/launchd.log</string>
@@ -61,6 +67,7 @@ else
   echo "✓ 定时任务已安装（传统方式）"
 fi
 
-echo "  每天 07:00 后台生成 → $DIR/docs/offline.html"
+echo "  登录后立刻检查一次 + 每天 09:05 兜底 → $DIR/docs/offline.html"
+echo "  今天已经生成过就自动跳过，不会重复抓"
 echo "  查看是否在跑：launchctl list | grep signaltower"
 echo "  卸掉它：launchctl bootout gui/$(id -u)/$LABEL"
