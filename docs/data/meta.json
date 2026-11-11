@@ -1,8 +1,8 @@
 {
-  "generated_at": 1794361669.74755,
-  "generated_at_iso": "2026-11-11 09:47:49",
+  "generated_at": 1794370827.2191167,
+  "generated_at_iso": "2026-11-11 04:20:27",
   "engine": "mymemory",
-  "elapsed": 232.9,
+  "elapsed": 395.6,
   "categories": {
     "ai": {
       "label": "前沿 AI",
@@ -14,7 +14,7 @@
     },
     "health": {
       "label": "养生",
-      "count": 21
+      "count": 22
     }
   },
   "sources": [
@@ -43,7 +43,7 @@
       "lang": "zh",
       "desc": "产业观察，观点鲜明",
       "ok": true,
-      "count": 16
+      "count": 14
     },
     {
       "id": "geekpark",
@@ -132,8 +132,8 @@
       "category": "ai",
       "lang": "en",
       "desc": "消费科技与平台生态",
-      "ok": false,
-      "count": 0
+      "ok": true,
+      "count": 10
     },
     {
       "id": "arxiv_ai",
@@ -141,8 +141,8 @@
       "category": "ai",
       "lang": "en",
       "desc": "论文摘要，前沿但噪声大",
-      "ok": false,
-      "count": 0
+      "ok": true,
+      "count": 25
     },
     {
       "id": "xinhua_pol",
@@ -205,13 +205,13 @@
       "lang": "zh",
       "desc": "健康频道，仅保留与四个代谢主题相关的内容",
       "ok": true,
-      "count": 22
+      "count": 23
     }
   ],
   "totals": {
-    "fetched": 540,
-    "kept": 201,
-    "sources_ok": 19,
+    "fetched": 574,
+    "kept": 202,
+    "sources_ok": 21,
     "sources_total": 21
   }
 }
