@@ -72,7 +72,8 @@ def make_standalone(out_dir: str):
 
 def default_config():
     cfg_path = os.path.join(BASE, "config.json")
-    base = {"max_items_per_category": 90, "max_age_hours": 120, "llm": {}}
+    # 默认就是"能看完"的量：每栏 25 条。config.json 里可以覆盖。
+    base = {"max_items_per_category": 25, "max_age_hours": 120, "llm": {}}
     if os.path.exists(cfg_path):
         try:
             with open(cfg_path, "r", encoding="utf-8") as f:
