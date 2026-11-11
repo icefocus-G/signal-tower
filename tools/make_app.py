@@ -127,8 +127,7 @@ INFO_PLIST = ""  # 交给 osacompile 生成，不再手拼
 # 项目路径烘死在这里——Finder 调起时 cwd 是 /，不能靠相对路径。
 APPLESCRIPT = """on run
 \tset proj to "__PROJECT__"
-\tdisplay notification "正在抓取，约 10 秒后自动打开…" with title "信号塔"
-\tdo shell script "cd " & quoted form of proj & " && ./refresh.sh >/dev/null 2>&1 &"
+\tdo shell script "cd " & quoted form of proj & " && ST_FRESH_OPEN=1 ST_UI=1 ./refresh.sh >> build/refresh.log 2>&1 &"
 end run
 """
 

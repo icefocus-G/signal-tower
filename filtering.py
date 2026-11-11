@@ -348,7 +348,8 @@ def process(raw_items: list, max_age_hours: int = 120, now=None) -> tuple:
         kept.append(c)
 
     # ---- 质量阈值 ----
-    threshold = 62.0
+    # 每天只给一份能看完的量：门槛抬高，宁可少几条，不要塞满
+    threshold = 66.0
     final = [k for k in kept if k["score"] >= threshold]
 
     # ---- 源多样性重排：避免单一媒体（如界面）刷屏 ----
