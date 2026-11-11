@@ -44,25 +44,34 @@ jobs:
           git add docs/
           if git diff --staged --quiet; then
             echo "内容无变化，跳过提交"
-          else
-            git commit -m "chore: 数据更新 $(date -u '+%Y-%m-%d %H:%M UTC')"
-            git push
+            exit 0
           fi
+          git commit -m "chore: 数据更新 $(date -u '+%Y-%m-%d %H:%M UTC')"
+          # 定时任务与手动触发可能并发，push 被拒时先 rebase 再推。
+          # docs/ 是构建产物，冲突时保留本次构建结果。
+          for i in 1 2 3 4; do
+            if git push origin HEAD:main; then
+              echo "推送成功（第 $i 次尝试）"
+              exit 0
+            fi
+            echo "推送被拒，第 $i 次重试前先同步远端…"
+            git rebase --abort 2>/dev/null || true
+            git pull --rebase -X theirs origin main || {
+              git rebase --abort 2>/dev/null || true
+              git checkout --theirs docs/ 2>/dev/null || true
+              git add docs/
+              git -c core.editor=true rebase --continue 2>/dev/null || true
+            }
+            sleep 6
+          done
+          echo "四次重试后仍无法推送"; exit 1
 
       - name: 保留构建摘要
         if: always()
         run: |
-          if [ -f docs/data/meta.json ]; then
-            python - <<'PY'
-          import json
-          m = json.load(open("docs/data/meta.json"))
-          t = m["totals"]
-          print(f"### 构建结果\n")
-          print(f"- 生成时间：{m['generated_at_iso']}")
-          print(f"- 翻译引擎：{m['engine']}")
-          print(f"- 来源在线：{t['sources_ok']}/{t['sources_total']}")
-          print(f"- 抓取 {t['fetched']} 条 → 保留 {t['kept']} 条")
-          print(f"- 耗时：{m['elapsed']}s")
-          print("\n" + "  ".join(f"{c['label']} {c['count']}" for c in m["categories"].values()))
-          PY
-          fi >> $GITHUB_STEP_SUMMARY
+          [ -f docs/data/meta.json ] || exit 0
+          {
+            echo "## 构建结果"
+            echo
+            python3 .github/summary.py
+          } >> "$GITHUB_STEP_SUMMARY"
