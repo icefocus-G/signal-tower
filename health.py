@@ -250,8 +250,8 @@ def route_health_item(item: dict) -> str:
     return hits[0] if hits else ""
 
 
-def fetch_epmc(topic: dict, page_size: int = 6, _retry: int = 1) -> list:
-    """抓取某主题的综述/指南类文献。失败重试一次。"""
+def fetch_epmc(topic: dict, page_size: int = 6, _retry: int = 3) -> list:
+    """抓取某主题的综述/指南类文献。限流时退避重试（2/4/6 秒）。"""
     params = {
         "query": topic["epmc_query"],
         "format": "json",
@@ -274,7 +274,7 @@ def fetch_epmc(topic: dict, page_size: int = 6, _retry: int = 1) -> list:
             if attempt >= _retry:
                 print(f"[epmc] {topic['id']} 抓取失败: {type(e).__name__}")
                 return []
-            time.sleep(2)
+            time.sleep(2 * (attempt + 1))
 
     if not data:
         return []
@@ -327,36 +327,44 @@ def _year_ts(year) -> float:
 
 def fetch_all_epmc(per_topic: int = 6, ttl_hours: float = 12) -> list:
     """
-    串行抓取四个主题，中间留间隔。
+    按主题抓取，主题之间留间隔。
     曾用并发，但 EPMC 对突发请求敏感，会返回占位错误文本。
 
-    带磁盘缓存：文献本来就以月为单位更新，没必要每次构建都去打扰它。
-    高频构建时命中缓存，既省时间，也避免被限流导致整栏文献忽有忽无。
+    缓存按主题分别存：文献以月为单位更新，没必要每次构建都去打扰它。
+    高频构建时命中缓存，既省时间，也避免限流导致某一栏文献忽有忽无。
+    某个主题抓取失败时沿用该主题的旧结果，而不是让整栏空掉。
     """
     cache = _load_epmc_cache()
+    topics_cache = cache.get("topics", {})
     now = time.time()
 
-    # 缓存还新鲜 → 直接用
-    if cache and now - cache.get("ts", 0) < ttl_hours * 3600:
-        return cache.get("items", [])
-
     out = []
-    failed = 0
+    touched = False
     for i, t in enumerate(TOPICS):
-        if i:
-            time.sleep(1.2)
-        got = fetch_epmc(t, per_topic)
-        if not got:
-            failed += 1
-        out.extend(got)
+        tid = t["id"]
+        entry = topics_cache.get(tid) or {}
+        fresh = entry.get("ts") and now - entry["ts"] < ttl_hours * 3600
+        if fresh and entry.get("items"):
+            out.extend(entry["items"])
+            continue
 
-    # 大部分主题都失败（多半是被限流）→ 宁可用旧数据，也不让文献栏空掉
-    if out and failed < len(TOPICS):
-        _save_epmc_cache({"ts": now, "items": out})
-        return out
-    if cache.get("items"):
-        print(f"[epmc] 抓取失败 {failed}/{len(TOPICS)}，沿用 {cache.get('ts', 0)} 的旧缓存")
-        return cache["items"]
+        if i:
+            time.sleep(1.8)
+        got = fetch_epmc(t, per_topic)
+        if got:
+            topics_cache[tid] = {"ts": now, "items": got}
+            touched = True
+            out.extend(got)
+        elif entry.get("items"):
+            # 抓取失败但有旧数据 —— 用旧的，别让主题消失
+            print(f"[epmc] {tid} 抓取失败，沿用旧缓存（{len(entry['items'])} 条）")
+            out.extend(entry["items"])
+        else:
+            print(f"[epmc] {tid} 无数据也无缓存，本栏暂缺")
+        time.sleep(0.6)
+
+    if touched:
+        _save_epmc_cache({"version": 2, "topics": topics_cache})
     return out
 
 
@@ -368,9 +376,10 @@ def _load_epmc_cache() -> dict:
     try:
         with open(_epmc_cache_path(), "r", encoding="utf-8") as f:
             data = json.load(f)
-        return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
+    # 旧版是 {"ts":..., "items":[...]}，结构不同直接丢弃重抓
+    return data if isinstance(data, dict) and data.get("version") == 2 else {}
 
 
 def _save_epmc_cache(payload: dict) -> None:
