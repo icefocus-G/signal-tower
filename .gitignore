@@ -6,8 +6,9 @@ __pycache__/
 # 本地缓存（翻译记忆、文章缓存）
 cache/
 
-# 构建产物：dist 是本地预览，不进仓库
+# 构建产物：由 Actions 生成后直接部署，不进仓库
 dist/
+docs/
 
 # 配置文件可能含 API Key，本地自建，不入库
 config.json

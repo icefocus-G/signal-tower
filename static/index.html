@@ -353,7 +353,9 @@ const state = {
   bilingual: true,
   autoTrans: localStorage.getItem("st_autotrans") === "1",
   zhShown: new Set(JSON.parse(localStorage.getItem("st_zh") || "[]")),
-  mode: "static",      // static | api
+  mode: "static",      // static | api | inline
+  checking: false,     // 正在核对云端是否有更新
+  dataVersion: "",     // 当前数据的内容指纹（用作 CDN 绕过参数）
   read: new Set(JSON.parse(localStorage.getItem("st_read") || "[]")),
   stat: null,
 };
@@ -397,15 +399,17 @@ function saveRead() {
 
 /* ---------------- 数据加载 ---------------- */
 
-async function loadMeta() {
+async function loadMeta(force) {
   // 内联数据版（单文件，双击即可看）优先
   if (window.__DATA__ && window.__DATA__.meta) {
     state.mode = "inline";
     return window.__DATA__.meta;
   }
   // 再探测静态数据，最后回退到本地 API
+  // force：加时间戳穿透 GitHub Pages 的 10 分钟 CDN 缓存
+  const q = force ? `?v=${Date.now()}` : "";
   try {
-    const r = await fetch("data/meta.json", { cache: "no-store" });
+    const r = await fetch(`data/meta.json${q}`, { cache: "no-store" });
     if (r.ok) {
       state.mode = "static";
       return await r.json();
@@ -421,7 +425,10 @@ async function loadMeta() {
   throw new Error("无法加载数据");
 }
 
-async function loadCategory(cat) {
+async function loadCategory(cat, version) {
+  // version：内容指纹变了才带参数，平时仍吃 CDN 缓存
+  const v = version !== undefined ? version : state.dataVersion;
+  const q = v ? `?v=${v}` : "";
   if (state.mode === "inline") {
     const d = window.__DATA__[cat] || { items: [] };
     state.data[cat] = d.items || [];
@@ -431,7 +438,7 @@ async function loadCategory(cat) {
     return d;
   }
   if (state.mode === "static") {
-    const r = await fetch(`data/${cat}.json`, { cache: "no-store" });
+    const r = await fetch(`data/${cat}.json${q}`, { cache: "no-store" });
     if (!r.ok) throw new Error("分类数据缺失");
     const d = await r.json();
     state.data[cat] = d.items || [];
@@ -464,18 +471,32 @@ function renderStatus() {
   const when = t ? new Date(t * 1000).toLocaleString("zh-CN", { hour12: false }) : "—";
   const total = m.totals || {};
   const engineName = { google: "Google", llm: "大模型", mymemory: "MyMemory" }[m.engine] || "免费引擎";
+  const fresh = t ? ago(t) : "—";
+  // 新鲜度过低时把点变红，提示"该上游了"
+  const stale = t && Date.now() / 1000 - t > 3600;
+
+  let syncPill;
+  if (state.mode === "inline") {
+    syncPill = '<span class="pill">单文件离线版 · 数据已内嵌</span>';
+  } else if (state.mode === "api") {
+    syncPill = '<span class="pill"><span class="dot"></span>本地服务</span>';
+  } else if (state.checking) {
+    syncPill = '<span class="pill"><span class="dot warn"></span>正在检查更新</span>';
+  } else {
+    syncPill = '<span class="pill"><span class="dot"></span>自动更新中</span>';
+  }
 
   el.innerHTML = `
-    <span class="pill"><span class="dot"></span>更新于 ${esc(when)}</span>
+    <span class="pill"><span class="dot ${stale ? "err" : ""}"></span>数据 ${esc(fresh)}</span>
+    <span class="pill">更新于 ${esc(when)}</span>
     ${total.sources_total ? `<span class="pill">源 ${total.sources_ok}/${total.sources_total} 在线</span>` : ""}
     ${total.fetched ? `<span class="pill">抓取 ${total.fetched} → 保留 ${total.kept}</span>` : ""}
     <span class="pill"><span class="dot ${m.engine === "google" ? "" : "warn"}"></span>翻译 ${esc(engineName)}</span>
-    ${state.mode === "static" ? '<span class="pill">静态托管</span>'
-      : state.mode === "inline" ? '<span class="pill">单文件离线版</span>'
-      : '<span class="pill">本地服务</span>'}
+    ${syncPill}
   `;
   $("#foot-meta").textContent =
-    `上次构建 ${m.generated_at_iso || when} · 耗时 ${m.elapsed || "?"}s · ${total.sources_total || "—"} 个源`;
+    `上次构建 ${m.generated_at_iso || when} · 耗时 ${m.elapsed || "?"}s · ${total.sources_total || "—"} 个源` +
+    (state.mode === "static" ? " · 云端每 15 分钟自查一次" : "");
 }
 
 function renderRail() {
@@ -873,13 +894,37 @@ function bind() {
   });
 }
 
-/* ---------------- 启动 ---------------- */
+/* ---------------- 启动与自动更新 ---------------- */
 
-async function switchCategory() {
-  listEl.innerHTML = Array(4).fill(0).map(() =>
+function skeleton() {
+  return Array(4).fill(0).map(() =>
     `<div class="skel"><div style="height:12px;width:34%;margin-bottom:10px"></div>
      <div style="height:17px;width:86%;margin-bottom:9px"></div>
      <div style="height:12px;width:62%"></div></div>`).join("");
+}
+
+function renderCounts() {
+  $("#n-ai").textContent = (state.data.ai || []).length;
+  $("#n-pol").textContent = (state.data.politics || []).length;
+  $("#n-health").textContent = (state.data.health || []).length;
+}
+
+async function loadAll(version) {
+  await Promise.all(
+    Object.keys(CAT_LABEL).map((c) => loadCategory(c, version).catch(() => null))
+  );
+  state.items = state.data[state.cat] || [];
+}
+
+function renderAll() {
+  renderCounts();
+  renderStatus();
+  renderRail();
+  renderList();
+}
+
+async function switchCategory() {
+  listEl.innerHTML = skeleton();
   try {
     await loadCategory(state.cat);
     state.items = state.data[state.cat] || [];
@@ -887,6 +932,46 @@ async function switchCategory() {
     renderList();
   } catch (e) {
     listEl.innerHTML = `<div class="empty"><p>加载失败</p><small>${esc(e.message)}</small></div>`;
+  }
+}
+
+/**
+ * 核对云端有没有发布新内容。
+ * 用 content_hash 比对——只有内容真变了才重绘，避免把用户正在看的列表冲掉。
+ */
+async function checkForUpdate(opts) {
+  const manual = !!(opts && opts.manual);
+  if (state.mode !== "static") {
+    if (manual) {
+      toast(state.mode === "inline" ? "单文件离线版：数据已内嵌，无云端可查" : "本地服务模式，点刷新会重抓");
+    }
+    return false;
+  }
+  if (state.checking) return false;
+  state.checking = true;
+  renderStatus();
+  try {
+    const m = await loadMeta(true);
+    const oldKey = String((state.meta && (state.meta.content_hash || state.meta.generated_at)) || "");
+    const newKey = String((m && (m.content_hash || m.generated_at)) || "");
+    const changed = !!oldKey && !!newKey && oldKey !== newKey;
+    state.meta = m;
+    state.checking = false;
+    if (changed) {
+      state.dataVersion = String(m.content_hash || m.generated_at || "");
+      await loadAll(state.dataVersion);
+      renderAll();
+      toast("已获取最新内容 · " + (m.generated_at_iso || ""));
+      return true;
+    }
+    renderStatus();
+    if (manual) toast("已是最新 · 云端每 15 分钟自查一次");
+    return false;
+  } catch (e) {
+    state.checking = false;
+    renderStatus();
+    if (manual) toast("检查失败：" + e.message);
+    return false;
   }
 }
 
@@ -902,19 +987,13 @@ async function reload(manual) {
         const h = await (await fetch("/api/health", { cache: "no-store" })).json();
         if (!h.refreshing) break;
       }
-    } else if (manual) {
-      toast("静态站点由云端定时重建，稍后自动生效");
+      state.meta = await loadMeta();
+      await loadAll();
+      renderAll();
+      if (manual) toast("已刷新");
+    } else {
+      await checkForUpdate({ manual });
     }
-    state.meta = await loadMeta();
-    renderStatus();
-    await Promise.all(Object.keys(CAT_LABEL).map((c) => loadCategory(c).catch(() => null)));
-    state.items = state.data[state.cat] || [];
-    $("#n-ai").textContent = (state.data.ai || []).length;
-    $("#n-pol").textContent = (state.data.politics || []).length;
-    $("#n-health").textContent = (state.data.health || []).length;
-    renderRail();
-    renderList();
-    if (manual) toast("已刷新");
   } catch (e) {
     toast("刷新失败：" + e.message);
   } finally {
@@ -922,24 +1001,44 @@ async function reload(manual) {
   }
 }
 
+const POLL_MS = 90 * 1000;
+let lastFocusCheck = 0;
+
+function startAutoUpdate() {
+  if (state.mode !== "static") return;
+  // 页面前台时每 90 秒核对一次；切回标签页/重新聚焦立刻核一次
+  setInterval(() => {
+    if (document.hidden) return;
+    checkForUpdate({ manual: false });
+  }, POLL_MS);
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) checkForUpdate({ manual: false });
+  });
+  window.addEventListener("focus", () => {
+    const now = Date.now();
+    if (now - lastFocusCheck < 20000) return;
+    lastFocusCheck = now;
+    checkForUpdate({ manual: false });
+  });
+  window.addEventListener("online", () => checkForUpdate({ manual: false }));
+}
+
 async function boot() {
   bind();
+  listEl.innerHTML = skeleton();
   try {
-    state.meta = await loadMeta();
+    state.meta = await loadMeta(true);
   } catch (e) {
     listEl.innerHTML = `<div class="empty">
       <p>无法加载数据</p>
       <small>本地打开请用 <code>python3 server.py</code> 启动服务后再访问</small></div>`;
     return;
   }
-  renderStatus();
-  await Promise.all(Object.keys(CAT_LABEL).map((c) => loadCategory(c).catch(() => null)));
-  state.items = state.data[state.cat] || [];
-  $("#n-ai").textContent = (state.data.ai || []).length;
-  $("#n-pol").textContent = (state.data.politics || []).length;
-  $("#n-health").textContent = (state.data.health || []).length;
-  renderRail();
-  renderList();
+  state.dataVersion = String((state.meta && (state.meta.content_hash || state.meta.generated_at)) || "");
+  await loadAll(state.dataVersion);
+  renderAll();
+  startAutoUpdate();
 
   // 首次到访：提示译文是手动触发的
   if (localStorage.getItem("st_autotrans") === null) {
@@ -947,22 +1046,6 @@ async function boot() {
   }
 }
 boot();
-
-// 静态模式：每 10 分钟静默检查是否有新的构建产物
-if (state.mode === "static") {
-  setInterval(async () => {
-    try {
-      const m = await loadMeta();
-      if (state.meta && m.generated_at !== state.meta.generated_at) {
-        state.meta = m;
-        await Promise.all(Object.keys(CAT_LABEL).map((c) => loadCategory(c).catch(() => null)));
-        state.items = state.data[state.cat] || [];
-        renderStatus(); renderRail(); renderList();
-        toast("内容已更新");
-      }
-    } catch (e) { /* 静默 */ }
-  }, 600000);
-}
 })();
 </script>
 </body>

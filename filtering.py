@@ -330,7 +330,8 @@ def process(raw_items: list, max_age_hours: int = 120, now=None) -> tuple:
         candidates.append(item)
 
     # ---- 标题近重复合并：保留分数高的 ----
-    candidates.sort(key=lambda x: (-x["score"], -(x["published"] or 0)))
+    # 稳定排序：同分同时间时按 id 兜底，避免并发抓取的完成顺序影响结果
+    candidates.sort(key=lambda x: (-x["score"], -(x["published"] or 0), x["id"]))
     kept = []
     for c in candidates:
         dup = False

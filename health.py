@@ -12,6 +12,7 @@
 所以它们的饮食策略有大量重叠（限酒、控精制糖、控饱和脂肪、减重）。
 """
 import json
+import os
 import time
 import urllib.parse
 import urllib.request
@@ -324,17 +325,62 @@ def _year_ts(year) -> float:
         return 0.0
 
 
-def fetch_all_epmc(per_topic: int = 6) -> list:
+def fetch_all_epmc(per_topic: int = 6, ttl_hours: float = 12) -> list:
     """
     串行抓取四个主题，中间留间隔。
     曾用并发，但 EPMC 对突发请求敏感，会返回占位错误文本。
+
+    带磁盘缓存：文献本来就以月为单位更新，没必要每次构建都去打扰它。
+    高频构建时命中缓存，既省时间，也避免被限流导致整栏文献忽有忽无。
     """
+    cache = _load_epmc_cache()
+    now = time.time()
+
+    # 缓存还新鲜 → 直接用
+    if cache and now - cache.get("ts", 0) < ttl_hours * 3600:
+        return cache.get("items", [])
+
     out = []
+    failed = 0
     for i, t in enumerate(TOPICS):
         if i:
             time.sleep(1.2)
-        out.extend(fetch_epmc(t, per_topic))
+        got = fetch_epmc(t, per_topic)
+        if not got:
+            failed += 1
+        out.extend(got)
+
+    # 大部分主题都失败（多半是被限流）→ 宁可用旧数据，也不让文献栏空掉
+    if out and failed < len(TOPICS):
+        _save_epmc_cache({"ts": now, "items": out})
+        return out
+    if cache.get("items"):
+        print(f"[epmc] 抓取失败 {failed}/{len(TOPICS)}，沿用 {cache.get('ts', 0)} 的旧缓存")
+        return cache["items"]
     return out
+
+
+def _epmc_cache_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "epmc.json")
+
+
+def _load_epmc_cache() -> dict:
+    try:
+        with open(_epmc_cache_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_epmc_cache(payload: dict) -> None:
+    path = _epmc_cache_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+    except OSError:
+        pass
 
 
 def score_health(item: dict, now: float) -> float:

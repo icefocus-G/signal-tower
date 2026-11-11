@@ -91,13 +91,61 @@ def write_json(path, obj, pretty=False):
     os.replace(tmp, path)
 
 
-def build(out_dir: str, articles_per_cat: int, cfg: dict | None = None):
+def content_fingerprint(data: dict) -> str:
+    """
+    内容指纹：只取"用户能看到的内容"，不含时间戳、耗时、源状态。
+    两次构建筛出的条目与译文一致 → 指纹一致 → 无需重新发布。
+    """
+    import hashlib
+
+    rows = []
+    for cat in CATEGORIES:
+        for it in data.get(cat, []):
+            rows.append(
+                "|".join(
+                    [
+                        cat,
+                        str(it.get("id", "")),
+                        str(it.get("title", "")),
+                        str(it.get("title_zh") or ""),
+                        str(it.get("summary_zh") or ""),
+                        str(it.get("published") or ""),
+                    ]
+                )
+            )
+    blob = "\n".join(sorted(rows))
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def build(
+    out_dir: str,
+    articles_per_cat: int,
+    cfg: dict | None = None,
+    translate_mode: str = "full",
+    skip_if_unchanged: bool = False,
+):
     cfg = cfg or default_config()
     t0 = time.time()
-    print(f"信号塔构建 · 输出 → {out_dir}")
+    print(f"信号塔构建 · 输出 → {out_dir} · 翻译档位 {translate_mode}")
 
-    result = pipeline.aggregate(cfg, with_articles=articles_per_cat)
+    result = pipeline.aggregate(
+        cfg, with_articles=articles_per_cat, translate_mode=translate_mode
+    )
     data = result["data"]
+    fingerprint = content_fingerprint(data)
+
+    # 内容没变就不重写、不发布——高频构建时避免无意义的仓库变动与 Pages 重部署
+    if skip_if_unchanged:
+        meta_path = os.path.join(out_dir, "data", "meta.json")
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    old = json.load(f)
+            except (OSError, ValueError):
+                old = {}
+            if old.get("content_hash") == fingerprint:
+                print(f"内容无变化（指纹 {fingerprint}），跳过发布 · {time.time()-t0:.1f}s")
+                return {**result, "skipped": True}
 
     # 清理旧目录（只动自己生成的东西）
     if os.path.isdir(out_dir):
@@ -149,6 +197,11 @@ def build(out_dir: str, articles_per_cat: int, cfg: dict | None = None):
             "generated_at_iso": time.strftime(
                 "%Y-%m-%d %H:%M:%S", time.localtime(result["generated_at"])
             ),
+            "generated_at_utc_iso": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(result["generated_at"])
+            ),
+            "content_hash": fingerprint,
+            "translate_mode": translate_mode,
             "engine": result["engine"],
             "elapsed": result["elapsed"],
             "categories": index,
@@ -197,9 +250,25 @@ def main():
     ap = argparse.ArgumentParser(description="信号塔静态构建")
     ap.add_argument("--out", default=os.path.join(BASE, "dist"), help="输出目录")
     ap.add_argument("--articles", type=int, default=20, help="每类预抓正文篇数")
+    ap.add_argument(
+        "--translate",
+        choices=("full", "title", "none"),
+        default="full",
+        help="翻译档位：full 标题+摘要（全量构建）；title 只翻标题（高频构建）",
+    )
+    ap.add_argument(
+        "--skip-if-unchanged",
+        action="store_true",
+        help="内容指纹与上一版一致时不重写产物（供定时任务用，减少无意义发布）",
+    )
     args = ap.parse_args()
     try:
-        build(args.out, args.articles)
+        build(
+            args.out,
+            args.articles,
+            translate_mode=args.translate,
+            skip_if_unchanged=args.skip_if_unchanged,
+        )
     except Exception as e:  # noqa: BLE001
         print(f"构建失败: {type(e).__name__}: {e}", file=sys.stderr)
         import traceback

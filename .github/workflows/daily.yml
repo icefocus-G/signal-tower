@@ -1,24 +1,39 @@
-name: 每日构建
+name: 更新站点
 
+# 三档触发：
+#   */15  —— 增量：只翻标题，约 1 分钟，保证页面数据不会太久
+#   0 23,7 —— 全量：标题 + 摘要 + 正文，每天两次（北京 07:00 / 15:00）
+#   push  —— 改代码后立即重建
 on:
   schedule:
-    # UTC 23:00 = 北京 07:00；UTC 07:00 = 北京 15:00
+    - cron: "*/15 * * * *"
     - cron: "0 23,7 * * *"
-  workflow_dispatch:          # 支持在网页上手动触发
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "构建档位"
+        type: choice
+        options: [incremental, full]
+        default: incremental
   push:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
-  group: daily-build
+  group: pages
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      changed: ${{ steps.build.outputs.changed }}
+      mode: ${{ steps.mode.outputs.mode }}
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -28,43 +43,49 @@ jobs:
         with:
           python-version: "3.11"
 
+      # 翻译记忆跨次复用：冷启动要翻几百条，热缓存只翻新增的几条
+      - name: 恢复翻译缓存
+        uses: actions/cache@v4
+        with:
+          path: cache
+          key: translate-${{ github.run_id }}
+          restore-keys: |
+            translate-
+
+      - name: 判定构建档位
+        id: mode
+        run: |
+          MODE=incremental
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "0 23,7 * * *" ]; then
+            MODE=full
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.mode }}" = "full" ]; then
+            MODE=full
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "本次档位：$MODE"
+
       # 零第三方依赖，不需要 pip install
       - name: 抓取并生成静态站点
+        id: build
         env:
           # 可选：在仓库 Secrets 里配 LLM_API_KEY，翻译质量会明显更好
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
-        run: python build.py --out docs --articles 20
-
-      - name: 提交更新
+          MODE: ${{ steps.mode.outputs.mode }}
         run: |
-          git config user.name  "signal-tower-bot"
-          git config user.email "signal-tower-bot@users.noreply.github.com"
-          git add docs/
-          if git diff --staged --quiet; then
-            echo "内容无变化，跳过提交"
-            exit 0
+          if [ "$MODE" = "full" ]; then
+            OUT=$(python build.py --out docs --articles 20 --translate full --skip-if-unchanged 2>&1)
+          else
+            OUT=$(python build.py --out docs --articles 0 --translate title --skip-if-unchanged 2>&1)
           fi
-          git commit -m "chore: 数据更新 $(date -u '+%Y-%m-%d %H:%M UTC')"
-          # 定时任务与手动触发可能并发，push 被拒时先 rebase 再推。
-          # docs/ 是构建产物，冲突时保留本次构建结果。
-          for i in 1 2 3 4; do
-            if git push origin HEAD:main; then
-              echo "推送成功（第 $i 次尝试）"
-              exit 0
-            fi
-            echo "推送被拒，第 $i 次重试前先同步远端…"
-            git rebase --abort 2>/dev/null || true
-            git pull --rebase -X theirs origin main || {
-              git rebase --abort 2>/dev/null || true
-              git checkout --theirs docs/ 2>/dev/null || true
-              git add docs/
-              git -c core.editor=true rebase --continue 2>/dev/null || true
-            }
-            sleep 6
-          done
-          echo "四次重试后仍无法推送"; exit 1
+          echo "$OUT"
+          if echo "$OUT" | grep -q "跳过发布"; then
+            echo "changed=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=1" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: 保留构建摘要
         if: always()
@@ -73,5 +94,25 @@ jobs:
           {
             echo "## 构建结果"
             echo
+            echo "档位：\`${{ steps.mode.outputs.mode }}\`　本次是否有变化：\`${{ steps.build.outputs.changed }}\`"
+            echo
             python3 .github/summary.py
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 打包站点
+        if: steps.build.outputs.changed == '1'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.changed == '1'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -21,12 +21,15 @@ def aggregate(
     with_articles: int = 0,
     translator: Translator | None = None,
     verbose: bool = True,
+    translate_mode: str = "full",
 ) -> dict:
     """
     跑完整条管线。
 
     参数
-      with_articles : 为每个类目预抓多少篇正文（0 = 不抓，仅用 RSS 摘要）
+      with_articles  : 为每个类目预抓多少篇正文（0 = 不抓，仅用 RSS 摘要）
+      translate_mode : full = 标题 + 摘要；title = 只翻标题（高频构建用）；
+                       none = 完全不翻（原文照出）
     返回
       {"data": {cat: [items]}, "stats": {cat: {...}}, "sources": {...},
        "articles": {id: {...}}, "engine": str, "generated_at": float}
@@ -35,6 +38,15 @@ def aggregate(
     t0 = time.time()
 
     raw, status = fetcher.fetch_all(S.SOURCES, max_workers=12)
+    # 并发抓取的完成顺序每次不同，先按来源/时间排一次，
+    # 让去重"保留谁"和同分排序都只由内容决定，结果可复现
+    raw.sort(
+        key=lambda r: (
+            r.get("source_id") or "",
+            r.get("published") or 0,
+            r.get("guid") or r.get("url") or "",
+        )
+    )
     for r in raw:
         r["category"] = filtering.route_category(r)
     if verbose:
@@ -65,9 +77,9 @@ def aggregate(
 
     # ---- 翻译标题与摘要 ----
     t1 = time.time()
-    _translate_feed(data, tr)
+    _translate_feed(data, tr, translate_mode)
     if verbose:
-        print(f"[2/4] 翻译完成 {time.time()-t1:.1f}s — 引擎 {tr.engine}")
+        print(f"[2/4] 翻译完成 {time.time()-t1:.1f}s — 引擎 {tr.engine} 档位 {translate_mode}")
 
     # ---- 预抓正文 ----
     articles = {}
@@ -143,12 +155,18 @@ def _build_health(raw, cfg):
     return out, stat
 
 
-def _translate_feed(data, tr):
+def _translate_feed(data, tr, mode="full"):
     """
     翻译英文条目的标题与摘要。
     注意：译文存 title_zh / summary_zh，不覆盖原文——
     前端默认展示原文，由用户点「译」按钮或开启自动翻译后切换。
+
+    mode:
+      full  → 标题 + 摘要都要（每天两次的全量构建）
+      title → 只翻标题（高频增量构建，省掉大头耗时）
+      none  → 全跳过
     """
+    need_summary = mode == "full"
     pending = []
     for items in data.values():
         for it in items:
@@ -157,9 +175,13 @@ def _translate_feed(data, tr):
                 if it.get("summary"):
                     it["summary_orig"] = it["summary"]
                 pending.append(it["title"])
-                if it.get("summary"):
+                if need_summary and it.get("summary"):
                     pending.append(it["summary"][:260])
-    if not pending:
+    if mode == "none" or not pending:
+        for items in data.values():
+            for it in items:
+                if it["lang"] == "en":
+                    it["translated"] = False
         return
     try:
         mapping = tr.translate_many(pending, workers=4)
@@ -176,9 +198,10 @@ def _translate_feed(data, tr):
                 it["translated"] = True
             else:
                 it["translated"] = False
-            s = mapping.get((it.get("summary") or "")[:260])
-            if s:
-                it["summary_zh"] = s
+            if need_summary:
+                s = mapping.get((it.get("summary") or "")[:260])
+                if s:
+                    it["summary_zh"] = s
 
 
 def _prefetch_articles(data, per_cat, tr, verbose=False):

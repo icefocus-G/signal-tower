@@ -47,31 +47,55 @@
 
 ---
 
+## 「打开网页就能拿到最新」
+
+GitHub Pages 是纯静态托管，没有后端可跑，所以"实时抓取"只能靠两条腿：
+
+**一、页面自己会核对。** 打开页面时先加载数据（秒开），随后立刻带时间戳请求 `meta.json` 穿透 CDN 缓存，比对 `content_hash`；之后每 90 秒核对一次，切回标签页、重新聚焦、网络恢复时各补一次。指纹变了就静默换掉数据并提示，没变就什么也不做，不打断你正在看的内容。状态栏实时显示「数据 X 分钟前」，超过 1 小时变红。
+
+**二、云端 15 分钟自查一次。** Actions 每 15 分钟跑一次增量构建（只翻标题，约 1 分钟），每天两次全量构建（标题 + 摘要 + 正文）。
+
+两者叠加的效果：**你打开页面时，看到的数据最多比真实世界晚十几分钟**（GitHub 的 cron 有排队延迟，实测 0–10 分钟）。
+
+### 为什么不是真·实时
+
+浏览器直接抓 RSS 需要 CORS 放行。实测境内网络下 `allorigins`、`codetabs`、`corsproxy`、`cors.lol` 全部不可用（000 / 401 / 429），中文源自身也不发 CORS 头。要秒级实时，只有两条路：自己的服务器/Cloudflare Worker，或者页面里填一个能触发 Actions 的 Token。前者要额外账号，后者要你手动配置一次——所以默认没做。
+
+---
+
 ## 部署状态（已完成）
 
 | 项目 | 状态 |
 |---|---|
 | 仓库 | `icefocus-G/signal-tower`（public） |
 | 站点 | https://icefocus-g.github.io/signal-tower/ |
-| Pages | main 分支 `/docs` 目录，已启用 |
-| Actions 写权限 | 已设为 Read and write |
-| 首次构建 | 通过，21/21 源在线，574 条 → 保留 202 条 |
-| 定时 | 每天北京时间 07:00、15:00（UTC 23:00、07:00） |
+| 单文件版 | https://icefocus-g.github.io/signal-tower/offline.html |
+| Pages | **由 Actions 产物部署**（`build_type: workflow`），不再从分支目录读 |
+| 定时 | 每 15 分钟增量（`*/15`）+ 每天 07:00 / 15:00 全量（UTC 23:00 / 07:00） |
+| 翻译缓存 | 用 `actions/cache` 跨次复用，冷启动翻译几百条，热缓存只翻新增 |
 
-`push` 到 main 也会触发一次构建，所以改完代码推上去就能看到新数据。
+`push` 到 main 会立即重建。数据不再提交进 git，所以高频构建不会把仓库撑大。
 
-### 换一台机器 / 重建站点时的步骤
+### 三档构建
+
+```bash
+python3 build.py --out docs --articles 0  --translate title  # 增量：约 1 分钟
+python3 build.py --out docs --articles 20 --translate full   # 全量：标题+摘要+正文
+python3 build.py --out docs --translate none                 # 只抓不译
+```
+
+加 `--skip-if-unchanged` 时，若条目与译文跟上一版完全一致，不重写、不发布。这靠 `content_hash` 判断——为了让指纹稳定，抓取结果会先按「来源 / 时间 / guid」排一次序，去重和同分排序都只由内容决定，不受并发完成顺序影响。
+
+### 换一台机器 / 本地重建
 
 ```bash
 git clone https://github.com/icefocus-G/signal-tower.git
 cd signal-tower
 python3 build.py --out docs --articles 20   # 本地验证
-git add -A && git commit -m "update" && git push
+open docs/offline.html                      # 双击也能看
 ```
 
-推上去后 Actions 会自动重建并回写 `docs/`，Pages 自动更新。
-
-> 定时任务与手动触发可能同时跑，`daily.yml` 的提交步骤已带 rebase 重试；`docs/` 是构建产物，冲突时保留本次构建结果。
+`docs/` 是构建产物，已加入 `.gitignore`，由 Actions 每次生成并部署。
 
 ---
 
