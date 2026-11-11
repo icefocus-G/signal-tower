@@ -48,9 +48,9 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
 
-# 每日任务没装就顺手装一次——装失败也不耽误这次生成
+# 每日任务没装、或装了但没在 launchd 里生效，都顺手补一次——失败也不耽误这次生成
 PLIST="$HOME/Library/LaunchAgents/local.signaltower.daily.plist"
-if [ ! -f "$PLIST" ] && ! launchctl list 2>/dev/null | grep -q signaltower; then
+if [ ! -f "$PLIST" ] || ! launchctl list 2>/dev/null | grep -q signaltower; then
   bash "$DIR/安装定时任务.command" >/dev/null 2>&1 || true
 fi
 
